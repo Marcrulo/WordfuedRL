@@ -1,10 +1,29 @@
 [project]
 name = "wordfuedrl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Wordfeud Reinforcement Learning Environment"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "ipykernel>=7.2.0",
     "requests>=2.33.1",
+    "gymnasium>=1.0.0",
+    "numpy>=2.0.0",
+    "rich>=13.0.0",
+    "pyqt6>=6.0.0",
+    "matplotlib>=3.10.9",
+    "scikit-learn>=1.8.0",
+    "seaborn>=0.13.2",
+    "scikit-image>=0.26.0",
+    "easyocr>=1.7.2",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["wordfeud"]
+
+[dependency-groups]
+dev = ["pytest>=8.0.0"]

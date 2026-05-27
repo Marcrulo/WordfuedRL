@@ -1,7 +1,21 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(uv add *)",
+      "Bash(uv --version)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(/snap/bin/uv pip *)",
+      "Bash(python3 -c \"import gymnasium; import numpy; import rich; print\\('all ok'\\)\")",
+      "Bash(/home/mp/Desktop/WordfuedRL/.venv/bin/python -m pip install gymnasium numpy rich)",
+      "Bash(/home/mp/Desktop/WordfuedRL/.venv/bin/python --version)",
+      "Bash(VIRTUAL_ENV=/home/mp/Desktop/WordfuedRL/.venv /snap/bin/uv pip install gymnasium numpy rich)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(/home/mp/Desktop/WordfuedRL/.venv/bin/python -c \"import gymnasium; import numpy; import rich; print\\('gymnasium', gymnasium.__version__, 'numpy', numpy.__version__\\)\")",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(uv run *)",
+      "Bash(VIRTUAL_ENV=/home/mp/Desktop/WordfuedRL/.venv /snap/bin/uv pip install pyqt6)",
+      "Bash(.venv/bin/python -c \"from PyQt6.QtWidgets import QApplication; print\\('PyQt6 ok'\\)\")"
     ]
   }
 }
