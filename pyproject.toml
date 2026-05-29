@@ -17,6 +17,9 @@ dependencies = [
     "scikit-image>=0.26.0",
     "easyocr>=1.7.2",
     "pytesseract>=0.3.13",
+    "bs4>=0.0.2",
+    "playwright>=1.60.0",
+    "nest-asyncio>=1.6.0",
 ]
 
 [build-system]
