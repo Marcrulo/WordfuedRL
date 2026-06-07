@@ -30,6 +30,14 @@ DEFAULT_POINTS = {
     'æ': 4, 'ø': 4, 'å': 4, '*': 0,
 }
 
+# Danish Wordfeud tile bag: letter -> count. 103 letters + 2 blanks = 105 tiles.
+TILE_COUNTS = {
+    'a': 7, 'b': 4, 'c': 2, 'd': 5, 'e': 9, 'f': 3, 'g': 3, 'h': 2,
+    'i': 4, 'j': 2, 'k': 4, 'l': 5, 'm': 3, 'n': 7, 'o': 5, 'p': 2,
+    'r': 7, 's': 6, 't': 6, 'u': 3, 'v': 4, 'x': 1, 'y': 2, 'z': 1,
+    'æ': 2, 'ø': 2, 'å': 2, '*': 2,
+}
+
 # Bonus-square code -> (letter multiplier, word multiplier).
 #   0 dark / 1 normal -> no bonus
 #   2 green  = triple letter
@@ -155,10 +163,12 @@ class WordfeudEngine:
 
     # ── public API ────────────────────────────────────────────────────────
 
-    def legal_moves(self, letters, bonus, rack):
+    def legal_moves(self, letters, bonus, rack, board_blanks=None):
         """All legal moves. ``letters``/``bonus`` are 15x15 grids; ``rack`` a
-        list of uppercase/lowercase letters ('*' for blank). Returns scored,
-        deduped Moves sorted by descending score."""
+        list of uppercase/lowercase letters ('*' for blank). ``board_blanks`` is
+        an optional set of (row, col) for blank tiles already on the board (they
+        score 0 in words built across them). Returns scored, deduped Moves
+        sorted by descending score."""
         letters = [[(c or '').lower() for c in row] for row in letters]
 
         # Generate raw new-tile lists (in original board coords) both axes.
@@ -172,7 +182,8 @@ class WordfeudEngine:
             key = frozenset((r, c, ch) for r, c, ch, _ in new_tiles)
             if key in moves:
                 continue
-            score, word, direction, start = self._score(letters, bonus, new_tiles)
+            score, word, direction, start = self._score(
+                letters, bonus, new_tiles, board_blanks)
             moves[key] = Move(new_tiles, score, word, direction, start)
         return sorted(moves.values(), key=lambda mv: -mv.score)
 
@@ -183,10 +194,11 @@ class WordfeudEngine:
             new[r][c] = ch
         return new
 
-    def score_move(self, letters, bonus, new_tiles):
+    def score_move(self, letters, bonus, new_tiles, board_blanks=None):
         """Score a set of new tiles on a board. Returns (score, word, dir, start)."""
         return self._score(
-            [[(c or '').lower() for c in row] for row in letters], bonus, new_tiles)
+            [[(c or '').lower() for c in row] for row in letters], bonus,
+            new_tiles, board_blanks)
 
     # ── generation (single orientation) ─────────────────────────────────────
 
@@ -288,7 +300,8 @@ class WordfeudEngine:
 
     # ── scoring ─────────────────────────────────────────────────────────────
 
-    def _score(self, L, B, new_tiles):
+    def _score(self, L, B, new_tiles, board_blanks=None):
+        board_blanks = board_blanks or set()
         temp = [row[:] for row in L]
         new_pos = {}
         for r, c, ch, blank in new_tiles:
@@ -325,7 +338,7 @@ class WordfeudEngine:
                         wscore += base * lm
                         wmult *= wm
                     else:
-                        wscore += base
+                        wscore += 0 if (cr, cc2) in board_blanks else base
                 total += wscore * wmult
                 word = ''.join(temp[cr][cc2] for cr, cc2 in cells)
                 if main is None or len(word) > len(main[0]):

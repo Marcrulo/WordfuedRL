@@ -117,6 +117,126 @@ coloured bonus squares and placed tiles. Passing a `move` highlights its new
 tiles in gold and dims the rest — used in [3_interaction.ipynb](3_interaction.ipynb)
 to show *current → proposed move → next state* and a top-candidates gallery.
 
+## RL stack
+
+The training loop never touches vision — it runs a pure simulator.
+
+```
+WordfeudGame (sim) ──▶ WordfeudEnv (gym) ──▶ agent picks a candidate ──▶ reward
+  bag/turns/rules        candidate-eval         (eval.py / rl.py)        score+margin
+```
+
+| File | Role |
+|------|------|
+| [src/game.py](src/game.py) | `WordfeudGame`: bag, two racks, turns, scoring, end-game rack adjustment |
+| [src/agents.py](src/agents.py) | `GreedyAgent` (the opponent/baseline), `RandomAgent` |
+| [src/env.py](src/env.py) | `WordfeudEnv`: Gymnasium single-agent env vs greedy |
+| [src/eval.py](src/eval.py) | `evaluate()` — win rate / margin over N games; `best_candidate_policy` |
+| [src/rl.py](src/rl.py) | `LinearCandidateAgent` + batched REINFORCE `train()` (numpy starter) |
+| [src/rl_torch.py](src/rl_torch.py) | PyTorch actor-critic candidate agent + `train()` |
+| [src/boards.py](src/boards.py) | `STANDARD_BOARD`, `random_board()` (Wordfeud random-mode layouts) |
+| [src/probability.py](src/probability.py) | Unseen-tile pool + word/letter draw probabilities |
+| [src/lookahead.py](src/lookahead.py) | `LookaheadAgent` (2-ply Monte-Carlo) + `duel()` |
+| [4_environment.ipynb](4_environment.ipynb) | Demo: step, render, baseline eval, train (+ save model) |
+| [5_play_from_screenshot.ipynb](5_play_from_screenshot.ipynb) | Read a screenshot → pick the best move with the learned (or greedy) policy |
+
+`env.choose_action(engine, letters, bonus, rack, policy)` ranks the legal moves
+for a single position using the same candidate features as training, so any
+`policy(obs, info)` (greedy or learned) works at deployment. The learned agent
+persists via `LinearCandidateAgent.save/load` (`models/linear_agent.npy`); the
+screenshot notebook loads it if present, else falls back to greedy.
+
+### Design decisions
+- **Action interface = candidate evaluation.** Each turn the generator emits the
+  legal moves; the env exposes the **top-K** as a feature matrix + action mask,
+  and `action` indexes into them (last index = pass/swap). Full `Move` objects
+  are in `info["moves"]` for a custom policy. Fits maskable policies; avoids an
+  intractable fixed action space.
+- **Single-agent vs greedy.** The greedy opponent plays its turn *inside*
+  `step`, so the agent sees a clean one-player MDP. Self-play is a later upgrade.
+- **Reward (`reward_mode`).** `"margin"` (default) rewards only the terminal
+  score margin — the winning signal an agent must learn to beat greedy.
+  `"shaped"` adds dense per-move score: easy to learn but pulls toward greedy
+  (own-score maximisation). See "Beating greedy" below.
+
+### Game rules modelled
+105-tile Danish bag (103 letters + 2 blanks), draw/refill, pass, swap (bag ≥
+rack), end when a player empties the rack with an empty bag (finisher gains
+opponents' leftover points) or after `max_scoreless` consecutive non-scoring
+turns (each loses own leftovers).
+
+### Candidate features (per move)
+`score, n_tiles, is_vertical, start_row, start_col, word_len, leave_points`
+(`leave_points` = point-sum of tiles kept on the rack — the classic "leave"
+signal greedy ignores).
+
+### Status / results
+The numpy REINFORCE trainer is a **correctness scaffold**, not a strong player:
+the loop is stable (mean return rises, score weight learns positive) but the
+linear policy lands around greedy (~43–50% win), since greedy already maximises
+immediate score. **To actually beat greedy:** replace the linear scorer with a
+neural net over the board/rack planes (the env already provides them), add
+proper leave/positional features, and train longer — then add self-play.
+
+## Beating greedy: two paths
+
+Greedy is per-move score-optimal, so beating it means valuing what it ignores
+(rack leave, board danger). Two approaches are implemented:
+
+### A. Monte-Carlo lookahead (recommended) — `lookahead.py`
+No training. For each candidate move, simulate over racks sampled from the
+**unseen-tile pool** ([probability.py](src/probability.py)):
+
+```
+2-ply:  value(m) = m.score − E[ opponent's best reply on board+m ] + leave
+3-ply:  value(m) = m.score − E[ opponent reply ] + E[ my best next turn ] + leave
+```
+
+This captures **defense** automatically — a move that opens a triple-word scores
+well now but raises the opponent's expected reply, so its value drops. 2-ply
+beat greedy head-to-head on matched random boards (+~10 pp win rate, +~8 margin
+at only 6 samples / 8 candidates).
+
+Tuning levers (accuracy vs speed): `n_samples`, `max_candidates`, and `plies`
+(2 or 3). **3-ply** also simulates *your* next turn, so it values the rack leave
+directly (a good leave → stronger follow-up); ~2× the cost of 2-ply. Cost is
+`K·N` (×2 at 3-ply) move-generations per turn — an inference-time search, too
+slow as a self-play opponent at scale.
+
+**Exact endgame:** when the bag is empty the unseen pool *is* the opponent's
+rack, so the agent drops sampling and evaluates a single deterministic rollout
+(verified identical across RNG seeds), plus the go-out bonus (you gain the
+opponent's leftover tile points when you empty your rack first).
+
+The **information model**: you know the full bag, the board, and your own rack;
+everything else is the unseen pool (opponent rack + remaining bag). `probability.
+py` exposes it and answers "probability a draw can form word W" (Monte-Carlo,
+blank-aware) and expected letter counts (exact, by linearity).
+
+### B. Model-free RL — `rl.py` (linear), `rl_torch.py` (actor-critic)
+The Gymnasium env + candidate-evaluation policy. The torch actor-critic trains
+stably (decoupled critic, reward scaling) but, with the **shaped** reward, chases
+own-score and only matches greedy; use `reward_mode="margin"` (now the env
+default) to train on the winning signal, plus richer/defensive features and far
+more episodes. Slower path to surpassing greedy than (A), but it's the route to a
+fast learned policy and eventual self-play.
+
+## Blank tiles (end-to-end)
+
+Blanks are tracked everywhere they affect play:
+- **Rack blank** = `'*'`; the generator can play it as any letter, scoring 0 for
+  that tile (`is_blank` flag on each `Move` tile).
+- **Board blank** = a `(row, col)` in a `board_blanks` set, threaded through
+  `legal_moves` / `score_move` / `_score` so words built across it score the
+  blank cell as 0. The simulator updates `WordfeudGame.board_blanks` as blanks
+  are played; `lookahead` carries it (and adds blanks each ply); `probability.
+  unseen_tiles` debits a `'*'` (not the letter) for known board blanks.
+- **Vision** ([screenshot_to_map.py](src/screenshot_to_map.py)): `find_pip` /
+  `is_blank` detect a tile with no point pip (small non-border dark blob in the
+  extreme top-right). `read_state()` returns `(letters, bonus, board_blanks,
+  rack)` — blank-aware — and `available_letters()` emits `'*'`. See
+  [6_blank_detection.ipynb](6_blank_detection.ipynb) for the calibration.
+
 ## Known limitations / TODO
 
 - **No recognition confidence threshold.** `tile_to_text` always returns its
@@ -126,5 +246,12 @@ to show *current → proposed move → next state* and a top-candidates gallery.
 - **`split_board` drops the bonus code under existing letters** (sets it to 1).
   Harmless for scoring future moves (bonuses only matter on empty target cells),
   but pass `WF.map` directly as `bonus` if you want the true value everywhere.
-- **RL agent not built yet** — the engine provides `(action, next_state)`; the
-  policy/value learning is the next stage.
+- **Strong learned agent not built yet** — the env + a working REINFORCE
+  scaffold exist; next is a neural value/policy net over the board+rack planes,
+  richer leave/positional features, longer training, then self-play.
+- **Generator perf** — `legal_moves` rebuilds cross-checks + walks a Python trie
+  each call (~0.04 s/turn; a full game ~0.5 s). Fine now; likely the bottleneck
+  for large-scale self-play. Optimise (incremental cross-checks / numpy / Cython)
+  if training throughput bites.
+- **Bonus board in the env** is a flat placeholder (`bonus[7][7]=4`); plug in a
+  real Wordfeud layout (`WordfeudMap(path).map.tolist()`) for realistic play.

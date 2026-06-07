@@ -159,12 +159,64 @@ class WordfeudMap:
         return [bottom_img[:, i * tile_W : i * tile_W + letter_W] for i in range(7)]
 
     def available_letters(self):
-        letter_imgs = self.available_letter_imgs()
         letters = []
-        for img in letter_imgs:
-            letter = self.tile_to_text(img)
-            letters.append(letter)
+        for img in self.available_letter_imgs():
+            letters.append('*' if self.is_blank(img) else self.tile_to_text(img))
         return letters
+
+    # ── blank detection (no point pip in the top-right) ───────────────────────
+
+    @staticmethod
+    def find_pip(tile, max_area=0.05, max_bot=0.45, min_left=0.62, L_thr=35):
+        """Bounding box (x, y, w, h) of the tile's point pip, or None if absent.
+
+        The pip is a small dark connected component in the top-right that does
+        not touch any border. A letter's corner-reaching stroke is part of the
+        big letter component (not small + top-right), and edge strips / bleed
+        from neighbouring tiles touch a border, so both are excluded."""
+        img = tile[:, :, :3] if tile.ndim == 3 and tile.shape[2] == 4 else tile
+        H, W = img.shape[:2]
+        mask = (rgb2lab(img)[:, :, 0] < L_thr).astype(np.uint8)
+        n, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+        for i in range(1, n):
+            x, y, w, h, area = stats[i]
+            if x <= 0 or y <= 0 or x + w >= W or y + h >= H:
+                continue
+            if area / (H * W) <= max_area and (y + h) / H <= max_bot and x / W >= min_left:
+                return (int(x), int(y), int(w), int(h))
+        return None
+
+    @classmethod
+    def is_blank(cls, tile):
+        """True if the tile carries no point pip (i.e. it is a blank)."""
+        return cls.find_pip(tile) is None
+
+    def read_state(self):
+        """Blank-aware read of the whole position for the move engine.
+
+        Returns (letters, bonus, board_blanks, rack):
+          - letters: 15x15 lowercase grid ('' = empty),
+          - bonus:   15x15 bonus-code grid,
+          - board_blanks: set of (row, col) for blank tiles on the board,
+          - rack:    list of rack letters ('*' for a blank).
+        Letters are only read on occupied tiles (board code 1), so empty cells
+        don't get spurious guesses."""
+        letters = [['' for _ in range(15)] for _ in range(15)]
+        bonus = [[1 for _ in range(15)] for _ in range(15)]
+        board_blanks = set()
+        for xi in range(15):
+            for yi in range(15):
+                code = int(self.map[xi, yi])
+                if code == 1:                       # occupied tile -> a letter
+                    tile = self.tile_from_coord(xi, yi)
+                    ch = self.tile_to_text(tile)
+                    if ch:
+                        letters[xi][yi] = ch.lower()
+                        if self.is_blank(tile):
+                            board_blanks.add((xi, yi))
+                else:
+                    bonus[xi][yi] = code
+        return letters, bonus, board_blanks, self.available_letters()
 
     # ── core: template matching ───────────────────────────────────────────
     #
