@@ -39,31 +39,33 @@ TILE_COUNTS = {
 }
 
 # Bonus-square code -> (letter multiplier, word multiplier).
+# Verified against the in-app labels (green=DL, blue=TL, orange=DW, red=TW):
 #   0 dark / 1 normal -> no bonus
-#   2 green  = triple letter
-#   3 blue   = double letter
-#   4 orange = double word
-#   5 red    = triple word
-# Adjust here if your colormap codes mean something different.
-BONUS_MULT = {0: (1, 1), 1: (1, 1), 2: (3, 1), 3: (2, 1), 4: (1, 2), 5: (1, 3)}
+#   2 green  = double letter (DL, letter x2)
+#   3 blue   = triple letter (TL, letter x3)
+#   4 orange = double word   (DW, word x2)
+#   5 red    = triple word   (TW, word x3)
+BONUS_MULT = {0: (1, 1), 1: (1, 1), 2: (2, 1), 3: (3, 1), 4: (1, 2), 5: (1, 3)}
 
 # Bonus-square colours (RGB 0-1), matching the board's own palette.
 BONUS_COLOR = {
     0: (0.16, 0.17, 0.19), 1: (0.92, 0.91, 0.87), 2: (0.46, 0.55, 0.37),
     3: (0.21, 0.38, 0.54), 4: (0.72, 0.47, 0.20), 5: (0.51, 0.20, 0.19),
 }
-BONUS_LABEL = {2: '3L', 3: '2L', 4: '2W', 5: '3W'}
+BONUS_LABEL = {2: 'DL', 3: 'TL', 4: 'DW', 5: 'TW'}
 
 
-def plot_board(letters, bonus, move=None, ax=None, title=None):
+def plot_board(letters, bonus, move=None, ax=None, title=None, board_blanks=None):
     """Draw the board: bonus squares coloured, placed letters shown. If a
     ``move`` is given, its new tiles are highlighted (gold) and the rest of the
-    letters dimmed. Returns the matplotlib Axes."""
+    letters dimmed. ``board_blanks`` (set of (row, col)) renders blank tiles in
+    grey (they score 0). Returns the matplotlib Axes."""
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
 
     letters = [[(c or '').lower() for c in row] for row in letters]
     n = len(letters)
+    blanks = set(board_blanks or ())
     new = {(r, c): (ch, b) for r, c, ch, b in (move.new_tiles if move else [])}
 
     if ax is None:
@@ -89,11 +91,14 @@ def plot_board(letters, bonus, move=None, ax=None, title=None):
                         va='center', fontsize=14, fontweight='bold',
                         color=('gray' if blank else 'black'), zorder=3)
             elif letters[r][c]:
+                is_blank = (r, c) in blanks
                 ax.add_patch(Rectangle((c, n - 1 - r), 1, 1, facecolor='#efe8c8',
                                        edgecolor='white', linewidth=1, zorder=1))
                 ax.text(c + 0.5, n - 1 - r + 0.5, letters[r][c].upper(),
                         ha='center', va='center', fontsize=13,
-                        color=('dimgray' if move else 'black'), zorder=2)
+                        fontstyle=('italic' if is_blank else 'normal'),
+                        color=('lightgray' if is_blank else
+                               'dimgray' if move else 'black'), zorder=2)
 
     ax.set_xlim(0, n); ax.set_ylim(0, n)
     ax.set_aspect('equal'); ax.set_xticks([]); ax.set_yticks([])

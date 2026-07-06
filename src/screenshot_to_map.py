@@ -12,7 +12,14 @@ class WordfeudMap:
     # Fine-tuning multipliers around the base scale that fits template to target
     FINE_SCALES = [0.85, 0.90, 0.95, 1.0, 1.05, 1.10, 1.15]
 
-    def __init__(self, img_path):
+    def __init__(self, img_path, palette_img="imgs/frame_1.jpeg"):
+        # Fix the colour palette from a reference screenshot (a near-empty board
+        # where every bonus colour — especially the rare red TW — is well
+        # represented), then quantise every target image against that same
+        # palette. Otherwise KMeans, fit per-image, drops red on a busy board
+        # and TW squares get misread as orange DW. Pass palette_img=None to fit
+        # on the target itself (legacy behaviour).
+        self._palette = self._fit_palette(palette_img) if palette_img else None
         self.img = self.load_img(img_path)
         self.board_offset = 10
         self.tile_size = self.img.shape[1] // 15
@@ -120,10 +127,22 @@ class WordfeudMap:
 
     # ── image loading ─────────────────────────────────────────────────────
 
+    @staticmethod
+    def _fit_palette(ref_path, k=8):
+        """Fit a KMeans colour palette on a reference screenshot."""
+        ref = np.array(Image.open(ref_path))[558:-250]
+        return KMeans(n_clusters=k, random_state=0).fit(ref.reshape(-1, 3))
+
     def load_img(self, img_path):
         img = np.array(Image.open(img_path))[558:-250]
-        kmeans = KMeans(n_clusters=8, random_state=0).fit(img.reshape(-1, 3))
-        quantized = kmeans.cluster_centers_[kmeans.labels_].astype(np.uint8)
+        flat = img.reshape(-1, 3)
+        if self._palette is not None:
+            # Quantise against the fixed reference palette (stable across images).
+            labels = self._palette.predict(flat)
+            quantized = self._palette.cluster_centers_[labels].astype(np.uint8)
+        else:
+            km = KMeans(n_clusters=8, random_state=0).fit(flat)
+            quantized = km.cluster_centers_[km.labels_].astype(np.uint8)
         return quantized.reshape(img.shape)
 
     # ── board colour map ──────────────────────────────────────────────────
