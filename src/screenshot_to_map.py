@@ -12,6 +12,11 @@ class WordfeudMap:
     # Fine-tuning multipliers around the base scale that fits template to target
     FINE_SCALES = [0.85, 0.90, 0.95, 1.0, 1.05, 1.10, 1.15]
 
+    # Vertical crop of the screenshot: everything from the top of the board down
+    # to just below the rack. Phone-specific — retune these two if the board or
+    # rack lands off-grid on a new device. (Previous phone: 558 / -250.)
+    CROP_TOP, CROP_BOTTOM = 565, -257
+
     def __init__(self, img_path, palette_img="imgs/frame_1.jpeg"):
         # Fix the colour palette from a reference screenshot (a near-empty board
         # where every bonus colour — especially the rare red TW — is well
@@ -127,14 +132,14 @@ class WordfeudMap:
 
     # ── image loading ─────────────────────────────────────────────────────
 
-    @staticmethod
-    def _fit_palette(ref_path, k=8):
+    @classmethod
+    def _fit_palette(cls, ref_path, k=8):
         """Fit a KMeans colour palette on a reference screenshot."""
-        ref = np.array(Image.open(ref_path))[558:-250]
+        ref = np.array(Image.open(ref_path))[cls.CROP_TOP:cls.CROP_BOTTOM]
         return KMeans(n_clusters=k, random_state=0).fit(ref.reshape(-1, 3))
 
     def load_img(self, img_path):
-        img = np.array(Image.open(img_path))[558:-250]
+        img = np.array(Image.open(img_path))[self.CROP_TOP:self.CROP_BOTTOM]
         flat = img.reshape(-1, 3)
         if self._palette is not None:
             # Quantise against the fixed reference palette (stable across images).
